@@ -1,0 +1,16 @@
+node_modules/
+.next/
+.env
+.env.local
+out/
+*.log
+
+# Raw scraped posting text never gets committed.
+corpus/
+postings*.txt
+
+# build and tooling leftovers
+.vercel
+*.tsbuildinfo
+.DS_Store
+.env*.local
