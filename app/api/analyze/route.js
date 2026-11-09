@@ -1,11 +1,21 @@
 import { NextResponse } from "next/server";
 import { analyze, analyzeAgainstReference } from "../../../lib/engine.js";
 import { framingFor } from "../../../lib/framing.js";
+import { allowFraming, clientIp } from "../../../lib/limit.js";
 
 /** Attach the prose if it is available. It never decides whether a response
  *  is sent, and it never delays one past its own timeout. */
-async function withFraming(result) {
+async function withFraming(result, req) {
   if (!result.ok) return result;
+  // Serve a cached answer without touching the budget. A cache hit costs
+  // nothing, so counting it against the daily cap would let a popular market
+  // exhaust the day on free lookups.
+  const cached = await framingFor(result, { cacheOnly: true });
+  if (cached) return { ...result, framing: cached };
+
+  // Only a genuine model call is gated.
+  if (!allowFraming(clientIp(req)).ok) return result;
+
   const framing = await framingFor(result);
   return framing ? { ...result, framing } : result;
 }
@@ -35,7 +45,7 @@ export async function POST(req) {
         { status: 400 });
     }
     const started = Date.now();
-    const result = await withFraming(analyzeAgainstReference(evidenced, experience));
+    const result = await withFraming(analyzeAgainstReference(evidenced, experience), req);
     return NextResponse.json({ ...result, mode: "reference", ms: Date.now() - started });
   }
 
@@ -57,7 +67,7 @@ export async function POST(req) {
 
   const started = Date.now();
   try {
-    const result = await withFraming(analyze(text, evidenced, experience));
+    const result = await withFraming(analyze(text, evidenced, experience), req);
     return NextResponse.json({ ...result, mode: "postings", ms: Date.now() - started },
                              { status: result.ok ? 200 : 400 });
   } catch (err) {
